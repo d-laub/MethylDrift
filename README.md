@@ -15,7 +15,6 @@ cd MethylDrift
 conda env create -f dependencies.yml -n MethylDrift
 
 # Add the directory to your Python path
-cd ..
 echo "export PYTHONPATH=${PWD}${PYTHONPATH:+:${PYTHONPATH}}" >> ~/.bashrc
 source ~/.bashrc
 ```
