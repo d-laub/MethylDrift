@@ -27,14 +27,16 @@ def init_logging(out_folder: Path, level='ERROR'):
     logging.basicConfig(filename=log_path, filemode='w', level=level)
 
 
-def infer_delim(csv_file: Path) -> Optional[str]:
-    """Infer the delimiter for a .csv file based on the file extension."""
-    if csv_file.suffix == '.csv':
+def infer_delim(file: Path) -> Optional[str]:
+    """Infer the delimiter for a .csv or feather file based on the file extension."""
+    if file.suffix == '.csv':
         delim = ','
-    elif csv_file.suffix in {'.tsv', '.txt'}:
+    elif file.suffix in {'.tsv', '.txt'}:
         delim = '\t'
-    else:
+    elif file.suffix in {'.fth', '.feather'}:
         delim = None
+    else:
+        logging.warning(f'Unrecognized file extension for file: {file}.')
     return delim
 
 
@@ -72,68 +74,6 @@ def validate_bval_file(bval_file: Path):
     valid_ext = ['.csv', '.tsv', '.txt', '.fth', '.feather']
     if bval_file.suffix not in valid_ext:
         raise RuntimeError(f'Invalid extension for bval_file. Got {bval_file.suffix}. Expected one of {valid_ext}.')
-
-
-def validate_longitudinal(pheno: pd.DataFrame):
-    if not pheno['pat_id'].duplicated().any():
-        raise RuntimeError('No patients with longitudinal data found based on duplicate patient IDs.')
-
-
-def minfi_run(pheno_file: Path, idat_dir: Path, out_dir: Path) -> Tuple[Path, Path]:
-    """Run minfi processing script to generate m-values from .idat files.
-    
-    Parameters
-    ----------
-    info_file : Path
-        Path to .csv of patient info.
-    idat_dir : Path
-        Path to folder containing raw .idat files.
-    out_dir: Path
-        Path to folder for output.
-
-    Returns
-    -------
-    minfi_mvals_path : Path
-        Path to m-values.
-    cg_ann_path : Path
-        Path to CpG annotations such as genomic coordinates and whether it is an island or singleton.
-    """
-
-    pheno = pd.read_csv(pheno_file)
-    if 'Basename' not in pheno.columns:
-        raise RuntimeError('''\
-            The column "Basename" was not found in the patient info file.
-            "Basename" should be the concatenation of each sample's Sentrix ID and Sentrix Array numbers.
-            i.e. <Sentrix ID>_<Sentrix Array>
-            ''')
-    raw = pheno[pheno['file_type'] == 'raw']
-    raw.rename(columns={'sample_id': 'Basename'}, inplace=True)
-    
-    # checking which idat types exist : 450k / EPIC
-    epic = (raw['idat_type'] == 'EPIC').any()
-    i450k = (raw['idat_type'] == '450k').any()
-
-    # minfi processing
-    if i450k and epic:
-        subprocess.run(f'Rscript ../R/run_minfi.R Both {idat_dir} {raw} {out_dir}'.split(), check=True)
-    elif i450k:
-        subprocess.run(f'Rscript ../R/run_minfi.R 450k {idat_dir} {raw} {out_dir}'.split(), check=True)
-    elif epic:
-        subprocess.run(f'Rscript ../R/run_minfi.R EPIC {idat_dir} {raw} {out_dir}'.split(), check=True)
-    
-
-    cg_ann_path = out_dir.joinpath('cg_ann.fth')
-    minfi_mvals_path = out_dir.joinpath('minfi_mvals.fth')
-
-    return minfi_mvals_path, cg_ann_path
-
-
-def minfi_get_result(minfi_mvals_file: Path, cg_ann_file: Path) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    """Load results from minfi."""
-    cg_ann = pd.read_feather(cg_ann_file)
-    minfi_mvals = pd.read_feather(minfi_mvals_file)
-    minfi_mvals.set_index('cg', drop=True, inplace=True)
-    return minfi_mvals, cg_ann
 
 
 def read_bval_to_mval(bval_file: Path) -> pd.DataFrame:
@@ -237,6 +177,7 @@ def md_lstsq(formula: str, X: pd.DataFrame, Y: pd.DataFrame) -> LstsqResult:
 
 
 def get_beta_t(mlg_mvals: pd.DataFrame, mlg_pheno: pd.DataFrame, ctrl_res: LstsqResult, dwell_mean: float) -> pd.DataFrame:
+    """Get β_t values from a given mean dwell time."""
     # (n,m) = (n,m) - (m,) - (m,) * (n,1)
     resid = (
         mlg_mvals

@@ -146,7 +146,7 @@ def nuts_estimate(
     mcmc.run(PRNGKey(seed), **model_kwargs)
     return mcmc
 
-def get_idata(mcmc: npr.infer.MCMC, model=None, model_kwargs=None, predictive=False, num_samples=500, seed=0):
+def get_idata(mcmc: npr.infer.MCMC, model=None, model_kwargs=None, predictive=False, num_samples=1000, seed=0):
     if predictive:
         assert model is not None and model_kwargs is not None, 'Need model and model_kwargs if adding the posterior predictive to idata.'
         post_samp = mcmc.get_samples()

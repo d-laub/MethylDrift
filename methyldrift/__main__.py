@@ -32,7 +32,7 @@ class LoggingLevel(Enum):
     
 valid_ext = ['.csv', '.tsv', '.txt', '.fth', '.feather']
 
-@app.command()
+# @app.command()
 def msce(
     pheno_file: Path = typer.Argument(..., help=dedent("""
         Path to CSV with sample phenotypes and metadata. Must have the following columns:\n
@@ -57,6 +57,8 @@ def msce(
     logging_level: LoggingLevel = typer.Option('ERROR', callback=str.upper)
     ):
     """Estimate patient-specific tumor dwell times using a prior from multistage clonal expansion models."""
+
+    raise NotImplementedError
 
     from methyldrift import lib, model, selection
     import pandas as pd
@@ -132,16 +134,9 @@ def msce(
     # priors = model.fit_empirical_priors(cgs, mlg_m, beta_t, sojourn_time)
     md_model_args = model.get_msce_model_args(cgs, ctrl_m, mlg_m, ctrl_res, mlg_pheno)
     md_model = model.msce_model(*md_model_args)
-    
-
-    # write to file, for now...
-    # cgs.to_frame().to_csv(output_dir.joinpath('selected_cgs.csv'), index=False, header=False)
-    # with open(output_dir.joinpath('priors.pkl'), 'wb') as f:
-    #     dump(priors, f)
 
 
-# Don't add to app until implemented.
-# @app.command()
+@app.command()
 def longitudinal(
     pheno_file: Path = typer.Argument(..., help=dedent("""
         Path to CSV with sample phenotypes and metadata. Must have the following columns:\n
@@ -152,15 +147,13 @@ def longitudinal(
         sample_group: str = normal, [other]\n
         pat_id: str = patient IDs
         """)),
-    bval_file: Optional[Path] = typer.Argument(None, help=dedent(f"""
+    bval_file: Path = typer.Argument(..., help=dedent(f"""
         Path to file of processed beta values.\n
         Note that filetype is inferred from extension and must be one of: {valid_ext}\n
         Should have a column "cg" of CpG IDs with other columns being sample IDs.\n
         """)),
-    idat_dir: Optional[Path] = typer.Argument(None, help='Path to folder with .idat files, or folder with 450k/EPIC as subdirectories with corresponding .idat files.'),
     output_dir: Optional[Path] = typer.Argument(None, help='Defaults to methyldrift_results_[time].'),
     cgs_file: Optional[Path] = typer.Argument(None, help='Instead of running CpG selection, use a list of CpG IDs.'),
-    from_minfi: bool = typer.Option(False, '--from-minfi', help='Whether to continue from MethylDrift\'s minfi results.'),
     logging_level: LoggingLevel = typer.Option(LoggingLevel.ERROR)
     ):
     """Use longitudinal data from maligant samples to estimate patient-specific dwell times in both cross-sectional and longitudinal data. WIP"""
@@ -174,38 +167,11 @@ def longitudinal(
         output_dir = Path(f'methyldrift_results_{timestamp}')
 
     lib.init_logging(output_dir, logging_level)
-    pheno = lib.validate_pheno_file(pheno_file, idat_dir, longitudinal=True)
-    lib.validate_longitudinal(pheno)
-    
-
-    # Process idat files or retrieve results
-    if from_minfi:
-        logging.info('Retrieving minfi output.')
-        minfi_mvals_path = output_dir.joinpath('minfi_mvals.fth')
-        cg_ann_path = output_dir.joinpath('cg_ann.fth')
-        minfi_mvals, cg_ann = lib.minfi_get_result(minfi_mvals_path, cg_ann_path)
-    elif idat_dir:
-        logging.info('Processing .idat files.')
-        minfi_mvals_path, cg_ann_path = lib.minfi_run(pheno_file, idat_dir, output_dir)
-        minfi_mvals, cg_ann = lib.minfi_get_result(minfi_mvals_path, cg_ann_path)
+    pheno = lib.validate_pheno_file(pheno_file, longitudinal=True)
 
 
-    # Read preprocessed data
-    logging.info('Reading in preprocessed beta values and converting to m-values.')
-    if bval_file:
-        proc_mvals = lib.read_bval_to_mval(bval_file)
-
-
-    # Combine m-values as necessary
-    mvals: pd.DataFrame
-    if idat_dir and bval_file:
-        logging.info('Combining m-values from raw .idat and preprocessed data.')
-        mvals = minfi_mvals.join(proc_mvals, how='inner').T
-        logging.info(f'Number of common CpG features: {len(mvals.columns)}.')
-    elif idat_dir:
-        mvals = minfi_mvals.T
-    else:
-        mvals = proc_mvals.T
+    logging.info('Reading beta values and converting to m-values.')
+    mvals = lib.read_bval_to_mval(bval_file).T
     
 
     # Partition controls and non-controls
@@ -215,44 +181,38 @@ def longitudinal(
     ctrl_m: pd.DataFrame = mvals.loc[ctrl_pheno.index] # (n, m)
     mlg_m: pd.DataFrame = mvals.loc[mlg_pheno.index] # (n, m)
 
-    # Standardize
-    # Good for regression numerics
-    ctrl_m_stder, mlg_m_stder, ctrl_pheno_stder, mlg_m_stder, s_ctrl_m, s_mlg_m, ctrl_age, mlg_age = (
-        lib.standardize(ctrl_m, mlg_m, ctrl_pheno, mlg_pheno)
-    )
-    ctrl_pheno = ctrl_pheno.join(ctrl_age)
-    mlg_pheno = mlg_pheno.join(mlg_age)
 
-    # Regress MethylDrift equation for point estimates
-    logging.info('Running regressions on m-values for CpG feature selection and empirical priors.')
-    ctrl_res = lib.md_lstsq('s_age', ctrl_pheno, s_ctrl_m)
+    logging.info('Running regressions on normal samples to estimate normal drift rates.')
+    ctrl_res = lib.md_lstsq('age', ctrl_pheno, ctrl_m)
 
-    logging.info('Running regressions on longitudinal samples to estimate drift in malignant tissue.')
-    longi_pheno, s_longi_m = longi.get_longi_data(mlg_pheno, s_mlg_m)
-    longi_params = longi.get_longi_params(longi_pheno, s_longi_m)
-    beta_t_res = longi.get_beta_t_res(longi_pheno, s_longi_m, longi_params)
+
+    logging.info('Running regressions on longitudinal samples to estimate (pre)malignant drift rates.')
+    longi_pheno, longi_m = longi.get_longi_data(mlg_pheno, mlg_m)
+    longi_params = longi.get_longi_params(longi_pheno, longi_m, ctrl_res)
+    beta_t_res = longi.get_beta_t_res(longi_pheno, longi_m, longi_params, ctrl_res)
+
 
     # Select CpGs for downstream Bayesian model
-    if cgs_file is not None:
-        raise NotImplementedError()
+    if cgs_file is None:
         logging.info('Selecting CpG sites for estimating dwell times.')
-        # cgs = selection.by_difference(mvals.columns, ctrl_res, beta_t)
-        # cgs = selection.normal_test(cgs, mlg_m)
-        # pct_selected = len(cgs)/len(ctrl_m.columns)*100
-        # logging.info(f'{len(cgs)}/{len(ctrl_m.columns)} ({pct_selected:.2f}%) of CpG features were selected for model fitting.')
+        cgs = selection.by_delta_m(mlg_m, mlg_pheno, ctrl_res, beta_t_res)
+        pct_selected = len(cgs)/len(ctrl_m.columns)*100
+        logging.info(f'{len(cgs)}/{len(ctrl_m.columns)} ({pct_selected:.2f}%) of CpG features were selected for model fitting.')
     else:
         logging.info(f'Using CpGs from {cgs_file}.')
         cgs: pd.Index = pd.read_csv(cgs_file, index_col=0, header=None, names=['cg']).index # type: ignore
+        n_input = len(cgs)
+        cgs = cgs[cgs.isin(mlg_m.columns)]
+        pct_available = len(cgs)/n_input*100
+        logging.info(f'{len(cgs)}/{n_input} ({pct_available})% of input CpGs are available in the dataset.')
+    
 
-    # Get dwell times from empirical beta_t
-    # dwell = longi.get_dwell(cgs, s_longi_m, mlg_pheno, ctrl_res, beta_t_res)
-
+    logging.info('Estimating patients\'s dwell times/ages of onset.')
     model_kwargs = model.get_longi_model_kwargs(cgs, ctrl_m, mlg_m, ctrl_res, mlg_pheno, beta_t_res)
     mcmc = model.nuts_estimate(model.longi_model, model_kwargs)
     idata = model.get_idata(mcmc, model.longi_model, model_kwargs)
 
     az.to_netcdf(idata, output_dir.joinpath('mcmc.nc'))
-
 
 
 if __name__ == '__main__':

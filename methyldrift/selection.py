@@ -86,3 +86,20 @@ def by_normality(
     cgs = cgs[cgs.isin(mvals.columns[mlg_m_normal])]
     
     return cgs
+
+
+def by_delta_m(
+    mlg_m: pd.DataFrame,
+    mlg_pheno: pd.DataFrame,
+    ctrl_res: LstsqResult,
+    beta_t_res: LstsqResult,
+    ):
+    '''Select CpGs based on whether sgn(Δm) = sgn(β_t).'''
+    resid = mlg_m.to_numpy() - ctrl_res.params['Intercept'].to_numpy() - ctrl_res.params['age'].to_numpy()*mlg_pheno['age'].to_numpy()[:, None]
+    resid = pd.DataFrame(resid, index=mlg_m.index, columns=mlg_m.columns)
+    match_sign = np.sign(resid) == np.sign(beta_t_res.params['origin_age'])
+    all_sign_match = match_sign.all(0)
+    bt_sig = beta_t_res.qvals['origin_age'] < 0.05
+    cgs = all_sign_match & bt_sig
+    cgs = beta_t_res.params.index[cgs]
+    return cgs
