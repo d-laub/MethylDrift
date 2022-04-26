@@ -32,7 +32,7 @@ class LoggingLevel(Enum):
     
 valid_ext = ['.csv', '.tsv', '.txt', '.fth', '.feather']
 
-# @app.command()
+@app.command()
 def msce(
     pheno_file: Path = typer.Argument(..., help=dedent("""
         Path to CSV with sample phenotypes and metadata. Must have the following columns:\n
@@ -54,7 +54,7 @@ def msce(
     output_dir: Optional[Path] = typer.Argument(None, help='Defaults to methyldrift_results_[time].'),
     cgs_file: Optional[Path] = typer.Argument(None, help='Instead of running CpG selection, use a list of CpG IDs.'),
     from_minfi: bool = typer.Option(False, '--from-minfi', help='Whether to continue from MethylDrift\'s minfi results.'),
-    logging_level: LoggingLevel = typer.Option('ERROR', callback=str.upper)
+    logging_level: LoggingLevel = typer.Option('ERROR')
     ):
     """Estimate patient-specific tumor dwell times using a prior from multistage clonal expansion models."""
 
