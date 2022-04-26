@@ -32,7 +32,7 @@ class LoggingLevel(Enum):
     
 valid_ext = ['.csv', '.tsv', '.txt', '.fth', '.feather']
 
-@app.command()
+# @app.command()
 def msce(
     pheno_file: Path = typer.Argument(..., help=dedent("""
         Path to CSV with sample phenotypes and metadata. Must have the following columns:\n
@@ -154,7 +154,7 @@ def longitudinal(
         """)),
     output_dir: Optional[Path] = typer.Argument(None, help='Defaults to methyldrift_results_[time].'),
     cgs_file: Optional[Path] = typer.Argument(None, help='Instead of running CpG selection, use a list of CpG IDs.'),
-    logging_level: LoggingLevel = typer.Option(LoggingLevel.ERROR)
+    logging_level: LoggingLevel = typer.Option('ERROR')
     ):
     """Use longitudinal data from maligant samples to estimate patient-specific dwell times in both cross-sectional and longitudinal data. WIP"""
 
