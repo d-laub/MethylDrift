@@ -13,6 +13,6 @@ dependencies:
   - scikit-learn
   - statsmodels
   - patsy
-  - numpyro
+  - numpyro<=0.9.1
   - jaxlib<=0.1.75
   - arviz
